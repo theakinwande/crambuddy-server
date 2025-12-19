@@ -1,0 +1,157 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Document {
+  id          String   @id @default(uuid())
+  userId      String?
+  user        User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  filename    String
+  originalName String
+  mimeType    String
+  size        Int
+  courseCode  String?
+  sourceType  String   @default("handout") // handout, pq
+  rawText     String?
+  cleanedText String?
+  confidence  String   @default("medium") // low, medium, high
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  chunks      Chunk[]
+  analyses    Analysis[]
+
+  @@index([userId])
+}
+
+model Chunk {
+  id          String   @id @default(uuid())
+  documentId  String
+  document    Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  content     String
+  embedding   String?  // JSON stringified embedding vector
+  chunkIndex  Int
+  createdAt   DateTime @default(now())
+
+  @@index([documentId])
+}
+
+model ChatSession {
+  id        String   @id @default(uuid())
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  title     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  messages  ChatMessage[]
+
+  @@index([userId])
+}
+
+model ChatMessage {
+  id          String      @id @default(uuid())
+  sessionId   String
+  session     ChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  role        String      // user, assistant
+  content     String
+  mode        String      @default("exam") // exam, eli5, gist
+  sources     String?     // JSON stringified sources
+  confidence  String?
+  createdAt   DateTime    @default(now())
+
+  @@index([sessionId])
+}
+
+model Analysis {
+  id          String   @id @default(uuid())
+  documentId  String
+  document    Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  courseCode  String
+  year        Int?
+  section     String?
+  topics      String   // JSON stringified topics
+  frequency   String   // JSON stringified frequency data
+  strategy    String?  // AI generated strategy
+  createdAt   DateTime @default(now())
+
+  @@index([documentId])
+  @@index([courseCode])
+}
+
+model AudioFile {
+  id          String   @id @default(uuid())
+  topicId     String
+  filename    String
+  duration    Int      // in seconds
+  script      String
+  createdAt   DateTime @default(now())
+}
+
+// ==================== USER & SUBSCRIPTION SYSTEM ====================
+
+model User {
+  id            String   @id @default(uuid())
+  email         String   @unique
+  phone         String?  @unique
+  passwordHash  String
+  googleId      String?  @unique
+  name          String?
+  plan          Plan     @default(FREE)
+  uploadCount   Int      @default(0)
+  lastUploadReset DateTime @default(now())
+  
+  // Paystack subscription fields
+  paystackCustomerId      String?   // CUS_xxxxx
+  paystackAuthCode        String?   // AUTH_xxxxx (for charging)
+  paystackSubscriptionCode String?  // SUB_xxxxx (active subscription)
+  
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  subscriptions Subscription[]
+  documents     Document[]
+  chatSessions  ChatSession[]
+  payments      Payment[]
+}
+
+enum Plan {
+  FREE
+  PRO
+  WHATSAPP
+}
+
+model Subscription {
+  id          String   @id @default(uuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  plan        Plan
+  startDate   DateTime @default(now())
+  endDate     DateTime
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+
+  @@index([userId])
+}
+
+model Payment {
+  id              String   @id @default(uuid())
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  amount          Int      // Amount in kobo (NGN smallest unit)
+  currency        String   @default("NGN")
+  status          String   @default("pending") // pending, success, failed
+  paystackRef     String   @unique
+  paystackTrxId   String?
+  plan            Plan
+  createdAt       DateTime @default(now())
+
+  @@index([userId])
+  @@index([paystackRef])
+}
+
