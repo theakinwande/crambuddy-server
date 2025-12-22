@@ -1,11 +1,13 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import { prisma } from '../lib/prisma.js';
+import { supabase } from '../lib/supabase.js';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'fallback-secret-change-me';
+const SUPABASE_JWT_SECRET = process.env.SUPABASE_JWT_SECRET || '';
 
 export interface AuthRequest extends Request {
   userId?: string;
+  supabaseUserId?: string;
   user?: {
     id: string;
     email: string;
@@ -14,7 +16,7 @@ export interface AuthRequest extends Request {
   };
 }
 
-// Middleware to verify JWT token and check subscription expiry
+// Middleware to verify Supabase JWT token
 export async function requireAuth(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const authHeader = req.headers.authorization;
@@ -26,10 +28,26 @@ export async function requireAuth(req: AuthRequest, res: Response, next: NextFun
     const token = authHeader.split(' ')[1];
     
     try {
-      const decoded = jwt.verify(token, JWT_SECRET) as { userId: string };
+      // Try Supabase verification first
+      const { data: { user: supabaseUser }, error: supabaseError } = await supabase.auth.getUser(token);
       
-      const user = await prisma.user.findUnique({
-        where: { id: decoded.userId },
+      let supabaseUserId: string;
+      
+      if (supabaseUser && !supabaseError) {
+        supabaseUserId = supabaseUser.id;
+      } else if (SUPABASE_JWT_SECRET) {
+        // Fallback to manual JWT verification
+        const decoded = jwt.verify(token, SUPABASE_JWT_SECRET, {
+          algorithms: ['HS256']
+        }) as { sub: string };
+        supabaseUserId = decoded.sub;
+      } else {
+        return res.status(401).json({ error: 'Invalid or expired token' });
+      }
+      
+      // Find user by supabaseId
+      let user = await prisma.user.findFirst({
+        where: { supabaseId: supabaseUserId },
         select: {
           id: true,
           email: true,
@@ -39,7 +57,7 @@ export async function requireAuth(req: AuthRequest, res: Response, next: NextFun
       });
 
       if (!user) {
-        return res.status(401).json({ error: 'User not found' });
+        return res.status(401).json({ error: 'User not found. Please sync your account.' });
       }
 
       // Check subscription expiry for PRO users
@@ -48,35 +66,33 @@ export async function requireAuth(req: AuthRequest, res: Response, next: NextFun
           where: {
             userId: user.id,
             active: true,
-            endDate: { gte: new Date() } // Not expired
+            endDate: { gte: new Date() }
           }
         });
 
-        // If no active subscription found, downgrade to FREE
         if (!activeSubscription) {
           console.log(`Subscription expired for user ${user.id}, downgrading to FREE`);
           
-          // Deactivate all subscriptions
           await prisma.subscription.updateMany({
             where: { userId: user.id, active: true },
             data: { active: false }
           });
 
-          // Downgrade user plan
           await prisma.user.update({
             where: { id: user.id },
             data: { plan: 'FREE' }
           });
 
-          // Update the user object for this request
           user.plan = 'FREE';
         }
       }
 
       req.userId = user.id;
+      req.supabaseUserId = supabaseUserId;
       req.user = user;
       next();
-    } catch {
+    } catch (err) {
+      console.error('JWT verification failed:', err);
       return res.status(401).json({ error: 'Invalid or expired token' });
     }
   } catch (error) {
@@ -85,7 +101,7 @@ export async function requireAuth(req: AuthRequest, res: Response, next: NextFun
   }
 }
 
-// Optional auth - doesn't fail if no token, just sets user if present
+// Optional auth - doesn't fail if no token
 export async function optionalAuth(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const authHeader = req.headers.authorization;
@@ -94,24 +110,27 @@ export async function optionalAuth(req: AuthRequest, res: Response, next: NextFu
       const token = authHeader.split(' ')[1];
       
       try {
-        const decoded = jwt.verify(token, JWT_SECRET) as { userId: string };
+        const { data: { user: supabaseUser } } = await supabase.auth.getUser(token);
         
-        const user = await prisma.user.findUnique({
-          where: { id: decoded.userId },
-          select: {
-            id: true,
-            email: true,
-            plan: true,
-            uploadCount: true
-          }
-        });
+        if (supabaseUser) {
+          const user = await prisma.user.findFirst({
+            where: { supabaseId: supabaseUser.id },
+            select: {
+              id: true,
+              email: true,
+              plan: true,
+              uploadCount: true
+            }
+          });
 
-        if (user) {
-          req.userId = user.id;
-          req.user = user;
+          if (user) {
+            req.userId = user.id;
+            req.supabaseUserId = supabaseUser.id;
+            req.user = user;
+          }
         }
       } catch {
-        // Token invalid, but continue without auth
+        // Token invalid, continue without auth
       }
     }
     
@@ -124,15 +143,12 @@ export async function optionalAuth(req: AuthRequest, res: Response, next: NextFu
 // Middleware to check upload quota
 export async function checkUploadQuota(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    // If no user, allow upload (guest mode)
     if (!req.user) {
       return next();
     }
 
     const { plan, uploadCount } = req.user;
     
-    // Free tier: 2 uploads per week
-    // Pro/WhatsApp: Unlimited
     if (plan === 'FREE' && uploadCount >= 2) {
       return res.status(403).json({
         error: 'Upload limit reached',

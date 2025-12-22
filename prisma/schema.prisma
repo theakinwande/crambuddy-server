@@ -101,6 +101,7 @@ model User {
   phone         String?  @unique
   passwordHash  String
   googleId      String?  @unique
+  supabaseId    String?  @unique  // Supabase auth user ID
   name          String?
   plan          Plan     @default(FREE)
   uploadCount   Int      @default(0)
