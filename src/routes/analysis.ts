@@ -14,11 +14,12 @@ router.post('/run', requireAuth, async (req: AuthRequest, res) => {
       where: { id: req.userId }
     });
 
-    if (!user || user.plan !== 'PRO') {
-      return res.status(403).json({ 
-        error: 'Exam Strategy is a premium feature. Please upgrade to access.' 
-      });
-    }
+    // TODO: restore for production
+    // if (!user || user.plan !== 'PRO') {
+    //   return res.status(403).json({ 
+    //     error: 'Exam Strategy is a premium feature. Please upgrade to access.' 
+    //   });
+    // }
 
     const { documentIds, courseCode } = req.body;
 

@@ -21,11 +21,12 @@ router.post('/script', requireAuth, async (req: AuthRequest, res) => {
       where: { id: req.userId }
     });
 
-    if (!user || user.plan !== 'PRO') {
-      return res.status(403).json({ 
-        error: 'Audio Cramming is a premium feature. Please upgrade to access.' 
-      });
-    }
+    // TODO: restore for production
+    // if (!user || user.plan !== 'PRO') {
+    //   return res.status(403).json({ 
+    //     error: 'Audio Cramming is a premium feature. Please upgrade to access.' 
+    //   });
+    // }
 
     const { documentId, topic } = req.body;
 
