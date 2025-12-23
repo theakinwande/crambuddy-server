@@ -43,7 +43,7 @@ export async function generateEmbedding(text: string): Promise<number[]> {
 export async function generateChatResponse(
   query: string,
   context: string,
-  mode: 'exam' | 'eli5' | 'gist'
+  mode: 'exam' | 'eli5' | 'gist' | 'brainy'
 ): Promise<string> {
   const modePrompts = {
     exam: `You are an exam preparation assistant for Nigerian university students. 
@@ -61,20 +61,33 @@ Make it easy to understand with Nigerian analogies and expressions.
 Keep lecturer definitions accurate but explain them simply.
 Be respectful - no slang that's too informal.
 If the answer is not in the context, say "E no dey for your material o."
-Example: "So basically, wetin this topic dey talk about na..."`
+Example: "So basically, wetin this topic dey talk about na..."`,
+
+    brainy: `You are a brilliant, all-knowing study assistant.
+You can answer ANY question, even if it's not in the provided materials.
+Give deep, insightful, and comprehensive answers. 
+If information is in the context, use it to ground your answer. 
+Otherwise, use your vast general knowledge to provide a stellar explanation.`
   };
 
   try {
+    const isRAG = mode !== 'brainy';
+    const systemPrompt = modePrompts[mode];
+    
+    const userPrompt = isRAG
+      ? `CONTEXT FROM UPLOADED MATERIALS:\n${context}\n\nSTUDENT QUESTION:\n${query}\n\nProvide a helpful answer based ONLY on the context above:`
+      : `CONTEXT (USE IF RELEVANT):\n${context}\n\nSTUDENT QUESTION:\n${query}\n\nProvide a brilliant and helpful answer:`;
+
     const response = await groq.chat.completions.create({
       model: CHAT_MODEL,
       messages: [
         {
           role: 'system',
-          content: modePrompts[mode]
+          content: systemPrompt
         },
         {
           role: 'user',
-          content: `CONTEXT FROM UPLOADED MATERIALS:\n${context}\n\nSTUDENT QUESTION:\n${query}\n\nProvide a helpful answer based ONLY on the context above:`
+          content: userPrompt
         }
       ],
       max_tokens: 1000,

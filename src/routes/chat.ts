@@ -42,14 +42,19 @@ router.post('/', requireAuth, async (req: AuthRequest, res) => {
       }
     });
 
-    // Retrieve relevant chunks (only from user's documents)
+    // Retrieve relevant chunks
+    // In brainy mode, we still try to get context if courseCode is provided, but it's not strictly required
     const { chunks, confidence } = await retrieveRelevantChunks(message, courseCode);
     
     // Build context from chunks
     const context = chunks.map(c => c.content).join('\n\n---\n\n');
     
     // Generate AI response
-    const response = await generateChatResponse(message, context, mode as 'exam' | 'eli5' | 'gist');
+    const response = await generateChatResponse(
+      message, 
+      context, 
+      mode as 'exam' | 'eli5' | 'gist' | 'brainy'
+    );
 
     // Build source citations
     const sources = chunks.map(chunk => ({
