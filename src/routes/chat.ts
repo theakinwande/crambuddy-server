@@ -1,10 +1,27 @@
 import { Router } from 'express';
+import multer from 'multer';
 import { prisma } from '../lib/prisma.js';
-import { generateChatResponse } from '../lib/gemini.js';
+import { generateChatResponse, transcribeAudio } from '../lib/gemini.js';
 import { retrieveRelevantChunks } from '../services/rag/retriever.js';
 import { requireAuth, AuthRequest } from '../middleware/auth.js';
 
 const router = Router();
+const upload = multer({ storage: multer.memoryStorage() });
+
+// POST /api/chat/transcribe - Transcribe audio for chat (requires auth)
+router.post('/transcribe', requireAuth, upload.single('audio'), async (req: AuthRequest, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'Audio file is required' });
+    }
+
+    const text = await transcribeAudio(req.file.buffer);
+    res.json({ text });
+  } catch (error) {
+    console.error('Transcription error:', error);
+    res.status(500).json({ error: 'Failed to transcribe audio' });
+  }
+});
 
 // POST /api/chat - Send a chat message (requires auth)
 router.post('/', requireAuth, async (req: AuthRequest, res) => {

@@ -1,5 +1,8 @@
 import OpenAI from 'openai';
 import dotenv from 'dotenv';
+import fs from 'fs';
+import path from 'path';
+import { v4 as uuidv4 } from 'uuid';
 
 dotenv.config();
 
@@ -232,5 +235,49 @@ Requirements:
   } catch (error) {
     console.error('Audio script error:', error);
     throw error;
+  }
+}
+
+// Transcribe audio using Groq's Whisper API
+export async function transcribeAudio(audioBuffer: Buffer): Promise<string> {
+  const tempFilePath = path.join('./temp', `transcription_${uuidv4()}.webm`);
+  
+  try {
+    console.log(`--- TRANSCRIPTION START --- Buffer size: ${audioBuffer.length} bytes`);
+    
+    if (audioBuffer.length === 0) {
+      throw new Error('Audio buffer is empty');
+    }
+
+    // Ensure temp directory exists
+    const tempDir = './temp';
+    if (!fs.existsSync(tempDir)) {
+      fs.mkdirSync(tempDir, { recursive: true });
+    }
+    
+    fs.writeFileSync(tempFilePath, audioBuffer);
+    
+    // Groq's OpenAI-compatible client for audio
+    // Using default response_format (json) for better compatibility
+    const response = await groq.audio.transcriptions.create({
+      file: fs.createReadStream(tempFilePath),
+      model: 'whisper-large-v3',
+    });
+    
+    console.log('--- TRANSCRIPTION SUCCESS ---');
+    return response.text;
+  } catch (error: any) {
+    console.error('--- TRANSCRIPTION ERROR ---', error.message || error);
+    if (error.cause) console.error('Error cause:', error.cause);
+    throw error;
+  } finally {
+    // Clean up
+    if (fs.existsSync(tempFilePath)) {
+      try {
+        fs.unlinkSync(tempFilePath);
+      } catch (e) {
+        console.warn('Failed to delete temp audio file:', e);
+      }
+    }
   }
 }
