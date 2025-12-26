@@ -24,9 +24,12 @@ app.use(cors({
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Health check
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+  res.json({ 
+    status: 'ok', 
+    timestamp: new Date().toISOString(),
+    env: process.env.NODE_ENV
+  });
 });
 
 // Routes
@@ -43,16 +46,22 @@ app.use((err: Error, req: express.Request, res: express.Response, next: express.
   res.status(500).json({ error: 'Internal server error' });
 });
 
-app.listen(PORT, async () => {
-  console.log(`🚀 CramBuddy Server running on http://localhost:${PORT}`);
-  
-  // Run subscription cleanup on startup
-  try {
-    const expiredCount = await cleanupExpiredSubscriptions();
-    if (expiredCount > 0) {
-      console.log(`📋 Cleaned up ${expiredCount} expired subscriptions`);
+// Export for Vercel
+export default app;
+
+// Only listen if not in a serverless environment
+if (process.env.NODE_ENV !== 'production' || !process.env.VERCEL) {
+  app.listen(PORT, async () => {
+    console.log(`🚀 CramBuddy Server running on http://localhost:${PORT}`);
+    
+    // Run subscription cleanup on startup
+    try {
+      const expiredCount = await cleanupExpiredSubscriptions();
+      if (expiredCount > 0) {
+        console.log(`📋 Cleaned up ${expiredCount} expired subscriptions`);
+      }
+    } catch (error) {
+      console.error('Failed to cleanup subscriptions:', error);
     }
-  } catch (error) {
-    console.error('Failed to cleanup subscriptions:', error);
-  }
-});
+  });
+}
